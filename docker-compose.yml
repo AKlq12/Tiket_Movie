@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Service 1: Aplikasi PHP (Laravel)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: movie-app
+    container_name: movie_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - movie-net
+    depends_on:
+      - db
+      - keycloak
+
+  # Service 2: Web Server (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: movie_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx:/etc/nginx/conf.d
+    networks:
+      - movie-net
+    depends_on:
+      - app
+
+  # Service 3: Database (MySQL)
+  db:
+    image: mysql:8.0
+    container_name: movie_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: moviedb
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_PASSWORD: password
+      MYSQL_USER: user
+    volumes:
+      - dbdata:/var/lib/mysql
+      # Tambahkan ini agar database keycloak otomatis dibuat saat pertama kali jalan
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d 
+    networks:
+      - movie-net
+  
+  # Service 4: Grafana (Monitoring)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    depends_on:
+      - db  # <--- PERBAIKAN 1: Nama service harus sesuai (db, bukan mysql)
+    networks:
+      - movie-net # <--- PERBAIKAN 2: Network harus sama dengan database
+
+  # Service 5: Identity Provider (Keycloak)
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.0
+    container_name: movie_idp
+    command: start-dev
+    environment:
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://db:3306/keycloak_db
+      KC_DB_USERNAME: root   # Tips: Pakai root biar aman akses create table
+      KC_DB_PASSWORD: root
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    networks:
+      - movie-net
+    depends_on:
+      - db
+
+networks:
+  movie-net:
+    driver: bridge
+
+volumes:
+  dbdata:
